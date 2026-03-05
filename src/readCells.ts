@@ -4,7 +4,7 @@ import { format } from 'numfmt';
 /**
  * Cell information, aligned with grid-apiary-llm-fusion CellInfo.
  */
-export interface CellInfo {
+export type CellInfo = {
   v?: string | number | boolean;
   f?: string;
   t?: 'z' | 'b' | 'n' | 's' | 'e';
@@ -12,7 +12,7 @@ export interface CellInfo {
   num_format?: string;
   style_index?: number;
   formatted?: string;
-}
+};
 
 export type MultiCellResult = Record<string, CellInfo>;
 

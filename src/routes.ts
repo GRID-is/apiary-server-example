@@ -47,7 +47,7 @@ const uploadWorkbookRoute = createRoute({
 const uploadNewVersionRoute = createRoute({
   method: 'post',
   path: '/workbook/{id}',
-  summary: 'Upload a new version of a workbook',
+  summary: 'Replace a workbook',
   request: {
     params: z.object({ id: z.string().uuid() }),
     body: {
@@ -63,7 +63,7 @@ const uploadNewVersionRoute = createRoute({
   responses: {
     201: {
       content: { 'application/json': { schema: UploadResponseSchema } },
-      description: 'New version uploaded successfully',
+      description: 'Workbook replaced successfully',
     },
     400: {
       content: { 'application/json': { schema: ErrorResponseSchema } },
@@ -143,7 +143,7 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
       const id = uuidv4();
       const result = store.storeNew(id, filename, model, xlsxBuffer);
 
-      return c.json({ id: result.id, version: result.version, filename }, 201);
+      return c.json({ id: result.id, modified: result.modified, filename }, 201);
     } finally {
       await unlink(tempPath).catch(() => {});
     }
@@ -171,7 +171,7 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
       const filename = file.name || 'workbook.xlsx';
       const result = store.storeNewVersion(id, model, xlsxBuffer, filename);
 
-      return c.json({ id: result.id, version: result.version, filename }, 201);
+      return c.json({ id: result.id, modified: result.modified, filename }, 201);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Workbook not found')) {
         return c.json({ error: err.message }, 404);

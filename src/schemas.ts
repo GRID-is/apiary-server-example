@@ -33,15 +33,15 @@ export const QueryResponseSchema = z.record(z.string(), ReadResultSchema);
 
 export const WorkbookInfoSchema = z.object({
   id: z.string().uuid(),
-  version: z.number().int(),
   filename: z.string(),
+  modified: z.string().datetime(),
   status: z.enum(['hot', 'cold', 'error']),
 });
 
 export const UploadResponseSchema = z.object({
   id: z.string().uuid(),
-  version: z.number().int(),
   filename: z.string(),
+  modified: z.string().datetime(),
 });
 
 export const ErrorResponseSchema = z.object({

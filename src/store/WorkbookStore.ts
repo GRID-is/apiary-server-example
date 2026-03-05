@@ -6,20 +6,20 @@ const EVICTION_CHECK_DELAY_MS = 1000;
 
 export type WorkbookStatus = 'hot' | 'cold' | 'error';
 
-export interface WorkbookInfo {
+export type WorkbookInfo = {
   id: string;
   filename: string;
-  version: number;
+  modified: string;
   status: WorkbookStatus;
-}
+};
 
-interface CacheEntry {
+type CacheEntry = {
   model: Model;
   id: string;
   filename: string;
-  version: number;
+  modified: string;
   lastUsedAt: number;
-}
+};
 
 export class WorkbookStore {
   private cache = new Map<string, CacheEntry>();
@@ -37,22 +37,22 @@ export class WorkbookStore {
     filename: string,
     model: Model,
     xlsxBuffer: Buffer,
-  ): { id: string; version: number } {
-    const version = 1;
+  ): { id: string; modified: string } {
+    const modified = new Date().toISOString();
     const modelBuffer = serializeModel(model);
 
     this.cache.set(id, {
       model,
       id,
       filename,
-      version,
+      modified,
       lastUsedAt: Date.now(),
     });
 
-    this.disk.save(id, version, xlsxBuffer, modelBuffer, filename);
+    this.disk.save(id, xlsxBuffer, modelBuffer, filename);
     this.scheduleEvictionCheck();
 
-    return { id, version };
+    return { id, modified };
   }
 
   storeNewVersion(
@@ -60,11 +60,11 @@ export class WorkbookStore {
     model: Model,
     xlsxBuffer: Buffer,
     filename?: string,
-  ): { id: string; version: number } {
+  ): { id: string; modified: string } {
     const existing = this.cache.get(id) ?? this.loadEntryFromDisk(id);
     if (!existing) throw new Error(`Workbook not found: ${id}`);
 
-    const version = existing.version + 1;
+    const modified = new Date().toISOString();
     filename = filename ?? existing.filename;
     const modelBuffer = serializeModel(model);
 
@@ -72,14 +72,14 @@ export class WorkbookStore {
       model,
       id,
       filename,
-      version,
+      modified,
       lastUsedAt: Date.now(),
     });
 
-    this.disk.save(id, version, xlsxBuffer, modelBuffer, filename);
+    this.disk.save(id, xlsxBuffer, modelBuffer, filename);
     this.scheduleEvictionCheck();
 
-    return { id, version };
+    return { id, modified };
   }
 
   get(id: string): Model {
@@ -124,7 +124,7 @@ export class WorkbookStore {
       result.push({
         id: meta.id,
         filename: cached?.filename ?? meta.filename,
-        version: cached?.version ?? meta.version,
+        modified: cached?.modified ?? meta.modified,
         status: cached ? 'hot' : 'cold',
       });
     }
@@ -143,7 +143,7 @@ export class WorkbookStore {
         model,
         id,
         filename: meta.filename,
-        version: meta.version,
+        modified: meta.modified,
         lastUsedAt: Date.now(),
       };
     } catch {
