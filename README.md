@@ -9,9 +9,10 @@ The REST server is written in TypeScript and based on [hono](https://hono.dev/).
 ### Endpoints
 
 - `POST /workbook` — upload a new workbook (.xlsx file) using multi-part HTTP form uploads
-- `POST /workbook/:id` — upload a new version of a workbook (.xlsx file) using multi-part HTTP form uploads
+- `POST /workbook/:id` — replace a workbook (.xlsx file) using multi-part HTTP form uploads
 - `POST /query/:id` — run a query against a loaded workbook
 - `GET /workbooks` — list the workbooks currently available in the server
+- `GET /openapi` — OpenAPI 3.0 spec (JSON)
 
 ### Query
 
@@ -28,6 +29,18 @@ The query is a JSON object:
 
 `apply` sets cell values before reading — this is useful for "what-if" scenarios. `read` is a list of A1-style cell or range references to return.
 
+The response is keyed by expression. Single cells return a cell object with `ref`, ranges return a dict keyed by cell reference. Cell objects are based on [JSF Cell](https://jsfkit.github.io/types/Cell/) — the `t` field indicates the value type: `n` (number), `s` (string), `b` (boolean), `e` (error), or `z` (empty).
+```json
+{
+  "C1": { "t": "n", "v": 142, "ref": "C1" },
+  "D1:D3": {
+    "D1": { "t": "n", "v": 1 },
+    "D2": { "t": "s", "v": "hello" },
+    "D3": { "t": "n", "v": 42, "num_format": "#,##0", "formatted": "42" }
+  }
+}
+```
+
 The query does not persist changes between requests; it is not an editing endpoint.
 
 ### Workbook object
@@ -35,8 +48,8 @@ The query does not persist changes between requests; it is not an editing endpoi
 ```json
 {
   "id": "uuid",
-  "version": 1,
   "filename": "Book1.xlsx",
+  "modified": "2025-03-05T16:38:00.000Z",
   "status": "hot"
 }
 ```

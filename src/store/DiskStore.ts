@@ -3,11 +3,11 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { config } from '../config.ts';
 
-export interface WorkbookDiskMeta {
+export type WorkbookDiskMeta = {
   id: string;
   filename: string;
-  version: number;
-}
+  modified: string;
+};
 
 export class DiskStore {
   private baseDir: string;
@@ -23,15 +23,15 @@ export class DiskStore {
 
   save(
     id: string,
-    version: number,
     xlsxBuffer: Buffer,
     modelBuffer: Buffer,
     filename: string,
+    modified: string,
   ): void {
     const dir = this.workbookDir(id);
     fs.mkdirSync(dir, { recursive: true });
 
-    const meta: WorkbookDiskMeta = { id, filename, version };
+    const meta: WorkbookDiskMeta = { id, filename, modified };
     fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
     fs.writeFileSync(path.join(dir, 'original.xlsx'), xlsxBuffer);
     fs.writeFileSync(path.join(dir, 'model.bin'), zlib.gzipSync(modelBuffer));

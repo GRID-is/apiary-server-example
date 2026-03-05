@@ -2,24 +2,24 @@ import { Model, serializeModel, deserializeModel } from '@grid-is/apiary';
 import { DiskStore } from './DiskStore.ts';
 import { config } from '../config.ts';
 
-const EVICTION_CHECK_DELAY_MS = 1000;
+const EVICTION_RETRY_DELAY_MS = 1000;
 
 export type WorkbookStatus = 'hot' | 'cold' | 'error';
 
-export interface WorkbookInfo {
+export type WorkbookInfo = {
   id: string;
   filename: string;
-  version: number;
+  modified: string;
   status: WorkbookStatus;
-}
+};
 
-interface CacheEntry {
+type CacheEntry = {
   model: Model;
   id: string;
   filename: string;
-  version: number;
+  modified: string;
   lastUsedAt: number;
-}
+};
 
 export class WorkbookStore {
   private cache = new Map<string, CacheEntry>();
@@ -37,48 +37,49 @@ export class WorkbookStore {
     filename: string,
     model: Model,
     xlsxBuffer: Buffer,
-  ): { id: string; version: number } {
-    const version = 1;
+  ): { id: string; modified: string } {
+    const modified = new Date().toISOString();
     const modelBuffer = serializeModel(model);
 
     this.cache.set(id, {
       model,
       id,
       filename,
-      version,
+      modified,
       lastUsedAt: Date.now(),
     });
 
-    this.disk.save(id, version, xlsxBuffer, modelBuffer, filename);
+    this.disk.save(id, xlsxBuffer, modelBuffer, filename, modified);
     this.scheduleEvictionCheck();
 
-    return { id, version };
+    return { id, modified };
   }
 
   storeNewVersion(
     id: string,
     model: Model,
     xlsxBuffer: Buffer,
-  ): { id: string; version: number } {
+    filename?: string,
+  ): { id: string; modified: string } {
     const existing = this.cache.get(id) ?? this.loadEntryFromDisk(id);
     if (!existing) throw new Error(`Workbook not found: ${id}`);
 
-    const version = existing.version + 1;
-    const filename = existing.filename;
+    const modified = new Date().toISOString();
+    filename = filename ?? existing.filename;
     const modelBuffer = serializeModel(model);
 
     this.cache.set(id, {
       model,
       id,
       filename,
-      version,
+      modified,
       lastUsedAt: Date.now(),
     });
 
-    this.disk.save(id, version, xlsxBuffer, modelBuffer, filename);
+    this.disk.save(id, xlsxBuffer, modelBuffer, filename, modified);
     this.scheduleEvictionCheck();
 
-    return { id, version };
+    return { id, modified };
   }
 
   get(id: string): Model {
@@ -97,6 +98,23 @@ export class WorkbookStore {
     return loaded.model;
   }
 
+  getModelForRead<T>(id: string, fn: (model: Model) => T): T {
+    const model = this.get(id);
+    this.resetModelState(model);
+    try {
+      return fn(model);
+    } finally {
+      this.resetModelState(model);
+    }
+  }
+
+  private resetModelState(model: Model): void {
+    for (const wb of model.getWorkbooks()) {
+      wb.reset();
+      wb.clearCachedFormulasExcept([]);
+    }
+  }
+
   listWorkbooks(): WorkbookInfo[] {
     const diskEntries = this.disk.listWorkbooks();
     const result: WorkbookInfo[] = [];
@@ -106,7 +124,7 @@ export class WorkbookStore {
       result.push({
         id: meta.id,
         filename: cached?.filename ?? meta.filename,
-        version: cached?.version ?? meta.version,
+        modified: cached?.modified ?? meta.modified,
         status: cached ? 'hot' : 'cold',
       });
     }
@@ -125,7 +143,7 @@ export class WorkbookStore {
         model,
         id,
         filename: meta.filename,
-        version: meta.version,
+        modified: meta.modified,
         lastUsedAt: Date.now(),
       };
     } catch {
@@ -154,7 +172,7 @@ export class WorkbookStore {
     }
 
     // Re-check after a delay
-    setTimeout(() => this.evictIfNeeded(), EVICTION_CHECK_DELAY_MS);
+    setTimeout(() => this.evictIfNeeded(), EVICTION_RETRY_DELAY_MS);
   }
 
   private evictLeastRecentlyUsed(): void {

@@ -14,9 +14,11 @@
     "@borgar/xlsx-convert": "^3.6.3",
     "@grid-is/apiary": "^15.1.0",
     "@hono/node-server": "^1.13.7",
+    "@hono/zod-openapi": "^1.2.2",
     "hono": "^4.6.0",
+    "numfmt": "^3.2.4",
     "uuid": "^11.0.0",
-    "zod": "^3.24.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1,22 +1,148 @@
-import { Hono } from 'hono';
+import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
+import { bodyLimit } from 'hono/body-limit';
 import { v4 as uuidv4 } from 'uuid';
-import { z } from 'zod';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeFile, unlink } from 'node:fs/promises';
 import { convert as xlsxConvert } from '@borgar/xlsx-convert';
-import { Model, isRef, type FormulaValue } from '@grid-is/apiary';
+import { Model, type CellValue } from '@grid-is/apiary';
 import { WorkbookStore } from './store/WorkbookStore.ts';
+import { readCells, type CellInfo, type MultiCellResult } from './readCells.ts';
+import {
+  QueryRequestSchema,
+  QueryResponseSchema,
+  WorkbookInfoSchema,
+  UploadResponseSchema,
+  ErrorResponseSchema,
+} from './schemas.ts';
 
-const QuerySchema = z.object({
-  apply: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
-  read: z.array(z.string()).min(1),
+// -- Route definitions --
+
+const uploadWorkbookRoute = createRoute({
+  method: 'post',
+  path: '/workbook',
+  summary: 'Upload a new workbook',
+  request: {
+    body: {
+      content: {
+        'multipart/form-data': {
+          schema: z.object({
+            file: z.any().openapi({ type: 'string', format: 'binary' }),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      content: { 'application/json': { schema: UploadResponseSchema } },
+      description: 'Workbook uploaded successfully',
+    },
+    400: {
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+      description: 'Bad request',
+    },
+  },
 });
 
-export function createRoutes(store: WorkbookStore): Hono {
-  const app = new Hono();
+const uploadNewVersionRoute = createRoute({
+  method: 'post',
+  path: '/workbook/{id}',
+  summary: 'Replace a workbook',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: {
+      content: {
+        'multipart/form-data': {
+          schema: z.object({
+            file: z.any().openapi({ type: 'string', format: 'binary' }),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      content: { 'application/json': { schema: UploadResponseSchema } },
+      description: 'Workbook replaced successfully',
+    },
+    400: {
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+      description: 'Bad request',
+    },
+    404: {
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+      description: 'Workbook not found',
+    },
+  },
+});
 
-  app.post('/workbook', async (c) => {
+const queryRoute = createRoute({
+  method: 'post',
+  path: '/query/{id}',
+  summary: 'Query a workbook',
+  description: 'Apply optional input values and read cell expressions from a workbook.',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: {
+      content: {
+        'application/json': { schema: QueryRequestSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: QueryResponseSchema } },
+      description: 'Query results keyed by expression',
+    },
+    400: {
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+      description: 'Bad request',
+    },
+    404: {
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+      description: 'Workbook not found',
+    },
+  },
+});
+
+const listWorkbooksRoute = createRoute({
+  method: 'get',
+  path: '/workbooks',
+  summary: 'List workbooks',
+  responses: {
+    200: {
+      content: { 'application/json': { schema: z.array(WorkbookInfoSchema) } },
+      description: 'List of workbooks with their status',
+    },
+  },
+});
+
+// -- Handlers --
+
+// Large workbooks are accepted but will have higher latency due to
+// parsing, conversion, and serialization costs.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
+
+export function createRoutes(store: WorkbookStore): OpenAPIHono {
+  const app = new OpenAPIHono();
+
+  app.use(
+    '/workbook/*',
+    bodyLimit({
+      maxSize: MAX_UPLOAD_BYTES,
+      onError: (c) => c.json({ error: 'Request body too large (100 MB limit)' }, 413),
+    }),
+  );
+  app.use(
+    '/workbook',
+    bodyLimit({
+      maxSize: MAX_UPLOAD_BYTES,
+      onError: (c) => c.json({ error: 'Request body too large (100 MB limit)' }, 413),
+    }),
+  );
+
+  app.openapi(uploadWorkbookRoute, async (c) => {
     const formData = await c.req.formData();
     const file = formData.get('file');
     if (!file || !(file instanceof File)) {
@@ -37,14 +163,17 @@ export function createRoutes(store: WorkbookStore): Hono {
       const id = uuidv4();
       const result = store.storeNew(id, filename, model, xlsxBuffer);
 
-      return c.json({ id: result.id, version: result.version, filename });
+      return c.json({ id: result.id, modified: result.modified, filename }, 201);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to parse workbook';
+      return c.json({ error: message }, 400);
     } finally {
       await unlink(tempPath).catch(() => {});
     }
   });
 
-  app.post('/workbook/:id', async (c) => {
-    const id = c.req.param('id');
+  app.openapi(uploadNewVersionRoute, async (c) => {
+    const { id } = c.req.valid('param');
 
     const formData = await c.req.formData();
     const file = formData.get('file');
@@ -62,78 +191,68 @@ export function createRoutes(store: WorkbookStore): Hono {
       jsf.name = file.name || 'workbook.xlsx';
       const model = Model.fromJSF(jsf);
 
-      const result = store.storeNewVersion(id, model, xlsxBuffer);
+      const filename = file.name || 'workbook.xlsx';
+      const result = store.storeNewVersion(id, model, xlsxBuffer, filename);
 
-      return c.json({ id: result.id, version: result.version });
+      return c.json({ id: result.id, modified: result.modified, filename }, 201);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Workbook not found')) {
         return c.json({ error: err.message }, 404);
       }
-      throw err;
+      const message = err instanceof Error ? err.message : 'Failed to parse workbook';
+      return c.json({ error: message }, 400);
     } finally {
       await unlink(tempPath).catch(() => {});
     }
   });
 
-  app.post('/query/:id', async (c) => {
-    const id = c.req.param('id');
-
-    const body = await c.req.json();
-    const parsed = QuerySchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid request', details: parsed.error.issues }, 400);
-    }
-
-    const { apply, read } = parsed.data;
+  app.openapi(queryRoute, async (c) => {
+    const { id } = c.req.valid('param');
+    const { apply, read } = c.req.valid('json');
 
     try {
-      const model = store.get(id);
-
-      // If applying values, we need to reset state afterwards
-      const hasApply = apply && Object.keys(apply).length > 0;
-
-      if (hasApply) {
-        for (const [target, value] of Object.entries(apply!)) {
-          model.write(target, value as string | number | boolean | null);
+      const results = store.getModelForRead(id, (model) => {
+        if (apply && Object.keys(apply).length > 0) {
+          const writes = Object.entries(apply).map(
+            ([target, value]) => [target, value] as const satisfies readonly [string, CellValue],
+          );
+          model.writeMultiple(writes, { reset: true, skipRecalc: true });
+          model.recalculate();
         }
-        model.recalculate();
-      }
 
-      const results: Record<string, unknown> = {};
-      for (const expression of read) {
-        const formula = expression.replace(/^=?/, '=');
-        const result = model.runFormula(formula, null);
-        results[expression] = resolveFormulaValue(model, result);
-      }
+        const res: Record<string, CellInfo | MultiCellResult> = {};
+        for (const expression of read) {
+          res[expression] = readCells(model, expression);
+        }
+        return res;
+      });
 
-      return c.json(results);
+      return c.json(results, 200);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Workbook not found')) {
         return c.json({ error: err.message }, 404);
       }
-      throw err;
+      // Errors from readCells or model operations are client errors
+      // (bad expressions, cell limit exceeded, invalid formula syntax, etc.)
+      const message = err instanceof Error ? err.message : 'Query failed';
+      return c.json({ error: message }, 400);
     }
   });
 
-  app.get('/workbooks', (c) => {
+  app.openapi(listWorkbooksRoute, (c) => {
     const workbooks = store.listWorkbooks();
-    return c.json(workbooks);
+    return c.json(workbooks, 200);
+  });
+
+  app.doc('/openapi', {
+    openapi: '3.0.0',
+    info: {
+      title: 'Apiary REST Server',
+      version: '0.1.0',
+      description: 'REST API for the Apiary spreadsheet engine',
+    },
   });
 
   return app;
 }
 
-function resolveFormulaValue(model: Model, value: FormulaValue): unknown {
-  if (isRef(value)) {
-    const ref = value.withContext(model);
-    const cells = ref.resolveAreaCells('any-cell-information');
-    if (ref.size === 1) {
-      return cells[0]?.[0]?.v ?? null;
-    }
-    return cells.map(row => row.map(cell => cell?.v ?? null));
-  }
-  if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
-    return value;
-  }
-  return value ?? null;
-}
