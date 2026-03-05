@@ -47,7 +47,7 @@ describe('query', () => {
     const store = new WorkbookStore(disk);
 
     const model = Model.fromJSF(testJSF);
-    workbookId = 'test-workbook-id';
+    workbookId = 'a0000000-0000-4000-8000-000000000001';
     store.storeNew(workbookId, 'test.xlsx', model, Buffer.from('fake-xlsx'));
 
     app = createRoutes(store);
@@ -64,13 +64,13 @@ describe('query', () => {
     // Assert
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.A1).toBe(1);
-    expect(body.B1).toBe(50);
+    expect(body.A1).toMatchObject({ t: 'n', v: 1 });
+    expect(body.B1).toMatchObject({ t: 'n', v: 50 });
   });
 
   it('applies values and reads computed results', async () => {
     // Arrange
-    const expectedB1 = 100;
+    const expectedB1Value = 100;
 
     // Act
     const res = await app.request(`/query/${workbookId}`, {
@@ -85,6 +85,6 @@ describe('query', () => {
     // Assert
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.B1).toBe(expectedB1);
+    expect(body.B1).toMatchObject({ t: 'n', v: expectedB1Value });
   });
 });
