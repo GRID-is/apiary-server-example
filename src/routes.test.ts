@@ -87,4 +87,48 @@ describe('query', () => {
     const body = await res.json();
     expect(body.B1).toMatchObject({ t: 'n', v: expectedB1Value });
   });
+
+  it('apply does not mutate the shared model', async () => {
+    // Read A1 — expect original value
+    const res1 = await app.request(`/query/${workbookId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ read: ['A1'] }),
+    });
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json();
+    expect(body1.A1).toMatchObject({ t: 'n', v: 1 });
+
+    // Apply A1=2, read B1 — expect recalculated value
+    const res2 = await app.request(`/query/${workbookId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apply: { A1: 2 }, read: ['B1'] }),
+    });
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json();
+    expect(body2.B1).toMatchObject({ t: 'n', v: 100 });
+
+    // Read A1 again without apply — must still be 1
+    const res3 = await app.request(`/query/${workbookId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ read: ['A1'] }),
+    });
+    expect(res3.status).toBe(200);
+    const body3 = await res3.json();
+    expect(body3.A1).toMatchObject({ t: 'n', v: 1 });
+  });
+
+  it('returns 404 for unknown workbook', async () => {
+    const unknownId = 'b0000000-0000-4000-8000-000000000099';
+    const res = await app.request(`/query/${unknownId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ read: ['A1'] }),
+    });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/not found/i);
+  });
 });

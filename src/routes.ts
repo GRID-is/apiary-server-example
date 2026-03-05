@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeFile, unlink } from 'node:fs/promises';
 import { convert as xlsxConvert } from '@borgar/xlsx-convert';
-import { Model } from '@grid-is/apiary';
+import { Model, type CellValue } from '@grid-is/apiary';
 import { WorkbookStore } from './store/WorkbookStore.ts';
 import { readCells, type CellInfo, type MultiCellResult } from './readCells.ts';
 import {
@@ -33,7 +33,7 @@ const uploadWorkbookRoute = createRoute({
     },
   },
   responses: {
-    200: {
+    201: {
       content: { 'application/json': { schema: UploadResponseSchema } },
       description: 'Workbook uploaded successfully',
     },
@@ -61,7 +61,7 @@ const uploadNewVersionRoute = createRoute({
     },
   },
   responses: {
-    200: {
+    201: {
       content: { 'application/json': { schema: UploadResponseSchema } },
       description: 'New version uploaded successfully',
     },
@@ -143,7 +143,7 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
       const id = uuidv4();
       const result = store.storeNew(id, filename, model, xlsxBuffer);
 
-      return c.json({ id: result.id, version: result.version, filename }, 200);
+      return c.json({ id: result.id, version: result.version, filename }, 201);
     } finally {
       await unlink(tempPath).catch(() => {});
     }
@@ -168,9 +168,10 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
       jsf.name = file.name || 'workbook.xlsx';
       const model = Model.fromJSF(jsf);
 
-      const result = store.storeNewVersion(id, model, xlsxBuffer);
+      const filename = file.name || 'workbook.xlsx';
+      const result = store.storeNewVersion(id, model, xlsxBuffer, filename);
 
-      return c.json({ id: result.id, version: result.version, filename: file.name || 'workbook.xlsx' }, 200);
+      return c.json({ id: result.id, version: result.version, filename }, 201);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Workbook not found')) {
         return c.json({ error: err.message }, 404);
@@ -186,20 +187,21 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
     const { apply, read } = c.req.valid('json');
 
     try {
-      const model = store.get(id);
-
-      const hasApply = apply && Object.keys(apply).length > 0;
-      if (hasApply) {
-        for (const [target, value] of Object.entries(apply!)) {
-          model.write(target, value as string | number | boolean | null);
+      const results = store.getModelForRead(id, (model) => {
+        if (apply && Object.keys(apply).length > 0) {
+          const writes = Object.entries(apply).map(
+            ([target, value]) => [target, value] as const satisfies readonly [string, CellValue],
+          );
+          model.writeMultiple(writes, { reset: true, skipRecalc: true });
+          model.recalculate();
         }
-        model.recalculate();
-      }
 
-      const results: Record<string, CellInfo | MultiCellResult> = {};
-      for (const expression of read) {
-        results[expression] = readCells(model, expression);
-      }
+        const res: Record<string, CellInfo | MultiCellResult> = {};
+        for (const expression of read) {
+          res[expression] = readCells(model, expression);
+        }
+        return res;
+      });
 
       return c.json(results, 200);
     } catch (err) {

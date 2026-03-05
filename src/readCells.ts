@@ -130,8 +130,7 @@ export function readCells(
     for (let row = 0; row < height; row++) {
       const areaRow = area[row];
       for (let col = 0; col < width; col++) {
-        const cell = areaRow?.[col];
-        if (!cell) continue;
+        const cell = areaRow?.[col] ?? null;
         const ref = toA1Ref(startCol + col, startRow + row);
         const { ref: _, ...cellInfo } = toCellInfo(cell, ref);
         cells[ref] = cellInfo;

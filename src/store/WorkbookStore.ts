@@ -59,12 +59,13 @@ export class WorkbookStore {
     id: string,
     model: Model,
     xlsxBuffer: Buffer,
+    filename?: string,
   ): { id: string; version: number } {
     const existing = this.cache.get(id) ?? this.loadEntryFromDisk(id);
     if (!existing) throw new Error(`Workbook not found: ${id}`);
 
     const version = existing.version + 1;
-    const filename = existing.filename;
+    filename = filename ?? existing.filename;
     const modelBuffer = serializeModel(model);
 
     this.cache.set(id, {
@@ -95,6 +96,23 @@ export class WorkbookStore {
     this.cache.set(id, loaded);
     this.scheduleEvictionCheck();
     return loaded.model;
+  }
+
+  getModelForRead<T>(id: string, fn: (model: Model) => T): T {
+    const model = this.get(id);
+    this.resetModelState(model);
+    try {
+      return fn(model);
+    } finally {
+      this.resetModelState(model);
+    }
+  }
+
+  private resetModelState(model: Model): void {
+    for (const wb of model.getWorkbooks()) {
+      wb.reset();
+      wb.clearCachedFormulasExcept([]);
+    }
   }
 
   listWorkbooks(): WorkbookInfo[] {
