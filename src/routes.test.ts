@@ -131,4 +131,67 @@ describe('query', () => {
     const body = await res.json();
     expect(body.error).toMatch(/not found/i);
   });
+
+  it('returns 400 for an invalid expression in read', async () => {
+    const res = await app.request(`/query/${workbookId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ read: ['=UNKNOWNFUNC('] }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+  });
+});
+
+describe('listWorkbooks', () => {
+  let app: ReturnType<typeof createRoutes>;
+  let workbookId: string;
+
+  beforeAll(() => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apiary-test-'));
+    const disk = new DiskStore(tmpDir);
+    const store = new WorkbookStore(disk);
+
+    const model = Model.fromJSF(testJSF);
+    workbookId = 'a0000000-0000-4000-8000-000000000002';
+    store.storeNew(workbookId, 'test.xlsx', model, Buffer.from('fake-xlsx'));
+
+    app = createRoutes(store);
+  });
+
+  it('returns the stored workbook in the list', async () => {
+    const res = await app.request('/workbooks', { method: 'GET' });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    const entry = body.find((w: { id: string }) => w.id === workbookId);
+    expect(entry).toBeDefined();
+    expect(entry.filename).toBe('test.xlsx');
+    expect(entry.status).toBe('hot');
+  });
+});
+
+describe('upload error handling', () => {
+  let app: ReturnType<typeof createRoutes>;
+
+  beforeAll(() => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apiary-test-'));
+    const disk = new DiskStore(tmpDir);
+    const store = new WorkbookStore(disk);
+    app = createRoutes(store);
+  });
+
+  it('returns 400 when uploading invalid content', async () => {
+    const formData = new FormData();
+    formData.append('file', new File([new Uint8Array([0, 1, 2, 3])], 'bad.xlsx'));
+
+    const res = await app.request('/workbook', {
+      method: 'POST',
+      body: formData,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+  });
 });

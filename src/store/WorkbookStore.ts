@@ -2,7 +2,7 @@ import { Model, serializeModel, deserializeModel } from '@grid-is/apiary';
 import { DiskStore } from './DiskStore.ts';
 import { config } from '../config.ts';
 
-const EVICTION_CHECK_DELAY_MS = 1000;
+const EVICTION_RETRY_DELAY_MS = 1000;
 
 export type WorkbookStatus = 'hot' | 'cold' | 'error';
 
@@ -49,7 +49,7 @@ export class WorkbookStore {
       lastUsedAt: Date.now(),
     });
 
-    this.disk.save(id, xlsxBuffer, modelBuffer, filename);
+    this.disk.save(id, xlsxBuffer, modelBuffer, filename, modified);
     this.scheduleEvictionCheck();
 
     return { id, modified };
@@ -76,7 +76,7 @@ export class WorkbookStore {
       lastUsedAt: Date.now(),
     });
 
-    this.disk.save(id, xlsxBuffer, modelBuffer, filename);
+    this.disk.save(id, xlsxBuffer, modelBuffer, filename, modified);
     this.scheduleEvictionCheck();
 
     return { id, modified };
@@ -172,7 +172,7 @@ export class WorkbookStore {
     }
 
     // Re-check after a delay
-    setTimeout(() => this.evictIfNeeded(), EVICTION_CHECK_DELAY_MS);
+    setTimeout(() => this.evictIfNeeded(), EVICTION_RETRY_DELAY_MS);
   }
 
   private evictLeastRecentlyUsed(): void {

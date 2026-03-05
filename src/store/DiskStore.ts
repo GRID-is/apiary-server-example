@@ -26,11 +26,12 @@ export class DiskStore {
     xlsxBuffer: Buffer,
     modelBuffer: Buffer,
     filename: string,
+    modified: string,
   ): void {
     const dir = this.workbookDir(id);
     fs.mkdirSync(dir, { recursive: true });
 
-    const meta: WorkbookDiskMeta = { id, filename, modified: new Date().toISOString() };
+    const meta: WorkbookDiskMeta = { id, filename, modified };
     fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
     fs.writeFileSync(path.join(dir, 'original.xlsx'), xlsxBuffer);
     fs.writeFileSync(path.join(dir, 'model.bin'), zlib.gzipSync(modelBuffer));

@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
+import { bodyLimit } from 'hono/body-limit';
 import { v4 as uuidv4 } from 'uuid';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -119,8 +120,27 @@ const listWorkbooksRoute = createRoute({
 
 // -- Handlers --
 
+// Large workbooks are accepted but will have higher latency due to
+// parsing, conversion, and serialization costs.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
+
 export function createRoutes(store: WorkbookStore): OpenAPIHono {
   const app = new OpenAPIHono();
+
+  app.use(
+    '/workbook/*',
+    bodyLimit({
+      maxSize: MAX_UPLOAD_BYTES,
+      onError: (c) => c.json({ error: 'Request body too large (100 MB limit)' }, 413),
+    }),
+  );
+  app.use(
+    '/workbook',
+    bodyLimit({
+      maxSize: MAX_UPLOAD_BYTES,
+      onError: (c) => c.json({ error: 'Request body too large (100 MB limit)' }, 413),
+    }),
+  );
 
   app.openapi(uploadWorkbookRoute, async (c) => {
     const formData = await c.req.formData();
@@ -144,6 +164,9 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
       const result = store.storeNew(id, filename, model, xlsxBuffer);
 
       return c.json({ id: result.id, modified: result.modified, filename }, 201);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to parse workbook';
+      return c.json({ error: message }, 400);
     } finally {
       await unlink(tempPath).catch(() => {});
     }
@@ -176,7 +199,8 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
       if (err instanceof Error && err.message.startsWith('Workbook not found')) {
         return c.json({ error: err.message }, 404);
       }
-      throw err;
+      const message = err instanceof Error ? err.message : 'Failed to parse workbook';
+      return c.json({ error: message }, 400);
     } finally {
       await unlink(tempPath).catch(() => {});
     }
@@ -208,7 +232,10 @@ export function createRoutes(store: WorkbookStore): OpenAPIHono {
       if (err instanceof Error && err.message.startsWith('Workbook not found')) {
         return c.json({ error: err.message }, 404);
       }
-      throw err;
+      // Errors from readCells or model operations are client errors
+      // (bad expressions, cell limit exceeded, invalid formula syntax, etc.)
+      const message = err instanceof Error ? err.message : 'Query failed';
+      return c.json({ error: message }, 400);
     }
   });
 
