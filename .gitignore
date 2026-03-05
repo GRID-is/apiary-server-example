@@ -1,0 +1,10 @@
+dist
+.DS_Store
+node_modules
+~$*
+*.sw?
+.idea
+.env
+.vscode
+.scratch
+workbooks/
