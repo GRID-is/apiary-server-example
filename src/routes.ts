@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeFile, unlink } from 'node:fs/promises';
 import { convert as xlsxConvert } from '@borgar/xlsx-convert';
-import { Model, Reference, isRef } from '@grid-is/apiary';
+import { Model, isRef, type FormulaValue } from '@grid-is/apiary';
 import { WorkbookStore } from './store/WorkbookStore.ts';
 
 const QuerySchema = z.object({
@@ -103,7 +103,7 @@ export function createRoutes(store: WorkbookStore): Hono {
       for (const expression of read) {
         const formula = expression.replace(/^=?/, '=');
         const result = model.runFormula(formula, null);
-        results[expression] = formatResult(result);
+        results[expression] = resolveFormulaValue(model, result);
       }
 
       return c.json(results);
@@ -123,17 +123,17 @@ export function createRoutes(store: WorkbookStore): Hono {
   return app;
 }
 
-function formatResult(value: unknown): unknown {
-  if (value === null || value === undefined) return null;
+function resolveFormulaValue(model: Model, value: FormulaValue): unknown {
+  if (isRef(value)) {
+    const ref = value.withContext(model);
+    const cells = ref.resolveAreaCells('any-cell-information');
+    if (ref.size === 1) {
+      return cells[0]?.[0]?.v ?? null;
+    }
+    return cells.map(row => row.map(cell => cell?.v ?? null));
+  }
   if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
     return value;
   }
-  // For References and other complex objects, extract what we can
-  if (typeof value === 'object' && value !== null) {
-    if ('valueOf' in value && typeof value.valueOf === 'function') {
-      const v = value.valueOf();
-      if (v !== value) return v;
-    }
-  }
-  return String(value);
+  return value ?? null;
 }
