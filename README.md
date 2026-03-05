@@ -9,7 +9,7 @@ The REST server is written in TypeScript and based on [hono](https://hono.dev/).
 ### Endpoints
 
 - `POST /workbook` — upload a new workbook (.xlsx file) using multi-part HTTP form uploads
-- `POST /workbook/:id` — upload a new version of a workbook (.xlsx file) using multi-part HTTP form uploads
+- `POST /workbook/:id` — replace a workbook (.xlsx file) using multi-part HTTP form uploads
 - `POST /query/:id` — run a query against a loaded workbook
 - `GET /workbooks` — list the workbooks currently available in the server
 - `GET /openapi` — OpenAPI 3.0 spec (JSON)
@@ -48,8 +48,8 @@ The query does not persist changes between requests; it is not an editing endpoi
 ```json
 {
   "id": "uuid",
-  "version": 1,
   "filename": "Book1.xlsx",
+  "modified": "2025-03-05T16:38:00.000Z",
   "status": "hot"
 }
 ```
