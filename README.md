@@ -29,7 +29,7 @@ The query is a JSON object:
 
 `apply` sets cell values before reading — this is useful for "what-if" scenarios. `read` is a list of A1-style cell or range references to return.
 
-The response is keyed by expression. Single cells return a cell object with `ref`, ranges return a dict keyed by cell reference:
+The response is keyed by expression. Single cells return a cell object with `ref`, ranges return a dict keyed by cell reference. Cell objects are based on [JSF Cell](https://jsfkit.github.io/types/Cell/) — the `t` field indicates the value type: `n` (number), `s` (string), `b` (boolean), `e` (error), or `z` (empty).
 ```json
 {
   "C1": { "t": "n", "v": 142, "ref": "C1" },
